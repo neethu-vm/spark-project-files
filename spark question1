@@ -1,0 +1,33 @@
+import pyspark
+from pyspark.sql import SparkSession
+from pyspark.sql.functions import *
+from pyspark.sql.types import *
+from datetime import datetime
+from pyspark.sql.types import DateType
+spark = SparkSession.builder.master("local").appName('Sparksession').getOrCreate()
+order_df1=spark.read.csv('/home/neethu/Downloads/orders.tsv',sep=r'\t',inferSchema=True,header=True)
+order_df1.show()
+order_df1.printSchema()
+
+#DERIVED ATTRIBUTES :Refund_ta_time = Refund_Datetime,Return_Datetime
+# Total_after_tax
+# Dic_percentage(total_discount(discount_amount+coupon_amount)/(Total_Paid_Amount) *100)
+
+df2=order_df1.withColumn('Refund_date',when(col('Refund_Datetime').isNotNull(),split(col('Refund_Datetime'),' ')[0]).otherwise(lit(None))) \
+           .withColumn('Return_date',when(col('Return_Datetime').isNotNull(),split(col('Return_Datetime'),' ')[0]).otherwise(lit(None)))
+df2.show()
+
+# create a user defined function for change date format
+
+func = udf(lambda x: datetime.strptime(x,'%m/%d/%Y'), DateType())
+
+df3 = df2.withColumn("return_date1",when(col('return_date').isNotNull(),func(col("return_date"))).otherwise(lit(None).cast("Date")))\
+        .withColumn("refund_date1",when(col('refund_date').isNotNull(),func(col("refund_date"))).otherwise(lit(None).cast("Date")))
+
+
+df4=df3.filter((col('Refund_date').isNotNull()) & (col('Return_date').isNotNull()))\
+      .withColumn('Refund_tr_days',datediff(col("refund_date1"),col("return_date1")))\
+      .withColumn('Total_after_tax',col("total_paid_amount")+col('total_tax_amount'))\
+      .withColumn('total_discount',col("Total_Discount_Amount")+col("Coupon_Amount"))\
+      .withColumn('Dic_percentage',col("total_discount")/col("Total_Paid_Amount") *100)
+df4.show()

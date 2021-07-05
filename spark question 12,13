@@ -1,0 +1,45 @@
+import pyspark
+from pyspark.sql import SparkSession
+from pyspark.sql.functions import *
+from pyspark.sql.functions import when,col
+from pyspark.sql.functions import datediff
+from datetime import datetime
+from pyspark.sql.types import DateType
+from pyspark.sql.types import StructType,StructField, StringType, IntegerType
+spark = SparkSession.builder.master("local[1]").appName("SparkSession").getOrCreate()
+order_df = spark.read.csv('/home/neethu/Downloads/order_lineitems_copy_1.tsv',inferSchema=True,sep='\t',header=True)
+df1=spark.read.csv('/home/neethu/Downloads/categories_dim.csv',inferSchema=True,header=True)
+df2=spark.read.csv('/home/neethu/Downloads/products_dim(1).tsv',inferSchema=True,sep='\t',header=True)
+from functools import reduce
+
+oldColumns = order_df.schema.names
+newColumns = ["Order_id","order_items_id","product_id","productname","customer_id","store_id","ship_status_code","order_datetime","ship_datetime","item_returndatetime","item_refunddatetime","product_category_id","product_categoryname","payment_methodcode","Tax_amount","item_quality","item_price","Discount_amount","coupon_code","coupon_amount","shipadreess_line1","shipaddress_line2","shipaddress_line3","ship_addresscity","ship_address_state","ship_postcode","ship_country","ship_phone","ship_customername","ship_mail","session_id","website"]
+
+df = reduce(lambda order_df, idx: order_df.withColumnRenamed(oldColumns[idx], newColumns[idx]), range(len(oldColumns)),order_df)
+#df.printSchema()
+#df.show()
+#print(df.columns)
+#split of date and time
+
+df = df.withColumn("ship_date",when(col("ship_datetime").isNotNull(),split(col("ship_datetime"),' ')[0]).otherwise(lit(None)))\
+    .withColumn("order_date",when(col("order_datetime").isNotNull(),split(col("order_datetime"),' ')[0]).otherwise(lit(None))) \
+    .withColumn("return_date",when(col("item_returndatetime").isNotNull(), split(col("item_returndatetime"), ' ')[0]).otherwise(lit(None)))\
+    .withColumn("refund_date", when(col("item_refunddatetime").isNotNull(), split(col("item_refunddatetime"), ' ')[0]).otherwise(lit(None)))\
+    .withColumn('ship_ta_time',datediff(col("ship_date"),col("order_date"))) \
+    .filter((col('refund_date').isNotNull()) & (col('return_date').isNotNull()))\
+    .withColumn('refund_ta_time', datediff(col("return_date"), col("refund_date"))) \
+     .withColumn('Total_paid_amount', col("item_quality") * col('item_price'))\
+      .withColumn('total_discount',col("Discount_amount")+col("coupon_amount"))\
+      .withColumn('Dic_percentage',col("total_discount")/col("item_price") *100)\
+     .withColumn('Total_after_tax',col("Total_paid_amount")+col('Tax_amount'))\
+    .withColumn('coupon_percentage',col("coupon_amount")/col('item_price'))
+
+
+category_df = df1.join(df2,df1.Category_ID==df2.Category_ID)
+
+final_df = df.join(category_df,df.product_id==category_df.Product_ID)
+final_df.show()
+
+final_df.groupby("return_date").count().show()
+
+final_df.groupby("refund_date").count().show()

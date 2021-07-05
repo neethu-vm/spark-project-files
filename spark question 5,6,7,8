@@ -1,0 +1,42 @@
+import pyspark
+from pyspark.sql import SparkSession
+from pyspark.sql.functions import *
+from pyspark.sql.types import *
+from datetime import datetime
+from pyspark.sql.types import DateType
+from pyspark.sql.functions import when,col
+from functools import reduce
+spark = SparkSession.builder.master("local").appName('Sparksession').getOrCreate()
+df1=spark.read.csv('/home/neethu/Downloads/customer.tsv',sep='\t',inferSchema=True,header=True)
+df=spark.read.csv('/home/neethu/Downloads/customer_addresses_dim.csv.tsv',sep=r'\t',inferSchema=True,header=True)
+df3=spark.read.csv('/home/neethu/Downloads/orders.tsv',sep=r'\t',inferSchema=True,header=True)
+
+oldColumns = df.schema.names
+newColumns = ["Customer_Address_ID","Customer1_ID","Valid_From_Timestamp","Valid_To_Timestamp","House_Number","Street_Name","Appt_Suite_No","City","State_Code","Zip_Code","Zip_Plus_Four","Country","Phone_Number" ]
+
+df2 = reduce(lambda df, idx: df.withColumnRenamed(oldColumns[idx], newColumns[idx]), range(len(oldColumns)),df)
+#df2.printSchema()
+#df2.show()
+columns_to_drop = ['_c4','_c5','_c6','_c7','_c8','_c9']
+#df1 = df1.drop(*columns_to_drop)
+#df1.show()
+#print(df2.columns)
+customer_join = df1.join(df2,df1.Customer_ID==df2.Customer1_ID)
+#customer_join.show(truncate=False)
+final_table = df3.join(customer_join,df3.Customer_ID==customer_join.Customer_ID,how="outer")
+final_table.show(truncate=False)
+
+ # Genderwise total metrics
+
+final_table.groupby("Gender").sum("Total_Paid_Amount").show()
+
+# Payment method wise total metrics
+
+final_table.groupby("Payment_Method_Code").sum("Total_Paid_Amount").show()
+
+# statewise total metrics
+
+final_table.groupby("State_Code").sum("Total_Paid_Amount").show()
+# City wise total metrics
+
+final_table.groupby("City").sum("Total_Paid_Amount").show()
